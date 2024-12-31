@@ -203,7 +203,7 @@ func UserSignIn(c *fiber.Ctx) error {
 			"data": fiber.Map{
 				"id":           existingUser.Id.Hex(),
 				"name":         existingUser.Name,
-				"profileImage": "",
+				"profileImage": existingUser.ImageUrl,
 				"email":        existingUser.Email,
 				"password":     "",
 				"type":         existingUser.Type,

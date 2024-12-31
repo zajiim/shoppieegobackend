@@ -15,6 +15,7 @@ func main() {
 	routes.CartRoutes(app)
 	routes.UserRoute(app)
 	routes.ProductsRoute(app)
+	routes.AccountRoute(app)
 
 	app.Listen(":3000")
 }
