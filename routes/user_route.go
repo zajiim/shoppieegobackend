@@ -9,5 +9,6 @@ import (
 func UserRoute(app *fiber.App) {
 	app.Post("/api/signup", controllers.UserSignUp)
 	app.Post("/api/signin", controllers.UserSignIn)
-
+	app.Post("/api/signout", controllers.UserSignOut)
+	app.Post("/api/oauth", controllers.OAuthLogin)
 }

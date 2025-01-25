@@ -92,3 +92,56 @@ func UpdateUserProfile(c *fiber.Ctx) error {
 	})
 
 }
+
+func GetUserProfile(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	userId, ok := c.Locals("userId").(string)
+	if !ok || userId == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(responses.UserResponse{
+			Status:  fiber.StatusUnauthorized,
+			Message: "User ID not found in token",
+			Result:  nil,
+		})
+	}
+
+	userObjectID, err := primitive.ObjectIDFromHex(userId)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(responses.UserResponse{
+			Status:  fiber.StatusUnauthorized,
+			Message: "Invalid UserID format",
+			Result:  nil,
+		})
+	}
+
+	// Check if the user exists
+	var existingUser models.User
+	err = userCollection.FindOne(ctx, bson.M{"_id": userObjectID}).Decode(&existingUser)
+
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(fiber.StatusNotFound).JSON(responses.UserResponse{
+				Status:  fiber.StatusNotFound,
+				Message: "User not found",
+				Result:  nil,
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  fiber.StatusInternalServerError,
+			Message: "Error fetching user data",
+			Result:  nil,
+		})
+	}
+
+	// Return success response
+	return c.Status(fiber.StatusOK).JSON(responses.UserResponse{
+		Status:  fiber.StatusOK,
+		Message: "User profile fetched successfully",
+		Result:  &fiber.Map{
+			"username": existingUser.Name,
+			"profileImage": existingUser.ImageUrl,
+			"email": existingUser.Email,
+		},
+	})
+}

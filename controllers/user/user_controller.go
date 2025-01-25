@@ -2,9 +2,12 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fiber-mongo-api/configs"
 	"fiber-mongo-api/models"
 	"fiber-mongo-api/responses"
+	"net/http"
 	"os"
 	"regexp"
 	"time"
@@ -222,4 +225,168 @@ func createJwt(userId string) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(jwtSecret))
+}
+
+func OAuthLogin(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var reqBody struct {
+		Provider string `json:"provider" validate:"required"`
+		Token    string `json:"token" validate:"required"`
+		// Type     string `json:"type" validate:"required,oneof=google facebook"`
+	}
+
+	if err := c.BodyParser(&reqBody); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  fiber.StatusBadRequest,
+			Message: "Invalid request format",
+			Result:  nil,
+		})
+	}
+
+	var userInfo map[string]string
+	var err error
+	switch reqBody.Provider {
+	case "google":
+		userInfo, err = ValidateGoogleToken(reqBody.Token)
+	case "facebook":
+		userInfo, err = ValidateFacebookToken(reqBody.Token)
+	default:
+		return c.Status(fiber.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  fiber.StatusBadRequest,
+			Message: "Invalid provider",
+			Result:  nil,
+		})
+	}
+
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(responses.UserResponse{
+			Status:  fiber.StatusUnauthorized,
+			Message: "Invalid token",
+			Result:  nil,
+		})
+	}
+
+	email := userInfo["email"]
+	name := userInfo["name"]
+
+	var existingUser models.User
+	err = userCollection.FindOne(ctx, bson.M{"email": email}).Decode(&existingUser)
+
+	var jwtToken string
+
+	if err == mongo.ErrNoDocuments {
+		newUser := models.User{
+			Id:    primitive.NewObjectID(),
+			Name:  name,
+			Email: email,
+			Cart:  []models.CartItem{},
+		}
+		_, err := userCollection.InsertOne(ctx, newUser)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+				Status:  fiber.StatusInternalServerError,
+				Message: "Error creating user",
+				Result:  nil,
+			})
+		}
+		jwtToken, err = createJwt(newUser.Id.Hex())
+	} else if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  fiber.StatusInternalServerError,
+			Message: "Error fetching user",
+			Result:  nil,
+		})
+	} else {
+		// Existing user, generate token
+		jwtToken, err = createJwt(existingUser.Id.Hex())
+	}
+
+	return c.Status(fiber.StatusOK).JSON(responses.UserResponse{
+		Status:  fiber.StatusOK,
+		Message: "User signed in successfully",
+		Result: &fiber.Map{
+			"data": fiber.Map{
+				"id":           existingUser.Id.Hex(),
+				"name":         existingUser.Name,
+				"profileImage": existingUser.ImageUrl,
+				"email":        existingUser.Email,
+				"password":     "",
+				"type":         existingUser.Type,
+				"cart":         existingUser.Cart,
+				"token":        jwtToken,
+			},
+		},
+	})
+
+}
+
+func ValidateGoogleToken(token string) (map[string]string, error) {
+	resp, err := http.Get("https://oauth2.googleapis.com/tokeninfo?id_token=" + token)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("invalid Google token")
+	}
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	email, ok1 := data["email"].(string)
+	name, ok2 := data["name"].(string)
+	if !ok1 || !ok2 {
+		return nil, errors.New("missing email or name")
+	}
+
+	return map[string]string{"email": email, "name": name}, nil
+}
+
+
+func ValidateFacebookToken(token string) (map[string]string, error) {
+	resp, err := http.Get("https://graph.facebook.com/me?fields=id,name,email&access_token=" + token)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("invalid Facebook token")
+	}
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	email, ok1 := data["email"].(string)
+	name, ok2 := data["name"].(string)
+	if !ok1 || !ok2 {
+		return nil, errors.New("missing email or name")
+	}
+
+	return map[string]string{"email": email, "name": name}, nil
+}
+
+func UserSignOut(c *fiber.Ctx) error {
+	_, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	token := c.Get("Authorization")
+	if token == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(responses.UserResponse{
+			Status:  fiber.StatusUnauthorized,
+			Message: "No auth token, access denied",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(responses.UserResponse{
+		Status:  fiber.StatusOK,
+		Message: "User signed out successfully",
+	})
+
 }

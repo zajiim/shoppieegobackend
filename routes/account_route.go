@@ -10,4 +10,5 @@ import (
 func AccountRoute(app *fiber.App) {
 
 	app.Post("/api/update-profile", middlewares.AuthMiddleware, controllers.UpdateUserProfile)
+	app.Get("/api/get-user-profile", middlewares.AuthMiddleware, controllers.GetUserProfile)
 }
