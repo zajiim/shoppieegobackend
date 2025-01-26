@@ -7,6 +7,7 @@ import (
 	"fiber-mongo-api/configs"
 	"fiber-mongo-api/models"
 	"fiber-mongo-api/responses"
+	"fmt"
 	"net/http"
 	"os"
 	"regexp"
@@ -270,6 +271,7 @@ func OAuthLogin(c *fiber.Ctx) error {
 
 	email := userInfo["email"]
 	name := userInfo["name"]
+	profileImage := userInfo["profileImage"]
 
 	var existingUser models.User
 	err = userCollection.FindOne(ctx, bson.M{"email": email}).Decode(&existingUser)
@@ -278,10 +280,11 @@ func OAuthLogin(c *fiber.Ctx) error {
 
 	if err == mongo.ErrNoDocuments {
 		newUser := models.User{
-			Id:    primitive.NewObjectID(),
-			Name:  name,
-			Email: email,
-			Cart:  []models.CartItem{},
+			Id:       primitive.NewObjectID(),
+			Name:     name,
+			Email:    email,
+			ImageUrl: profileImage,
+			Cart:     []models.CartItem{},
 		}
 		_, err := userCollection.InsertOne(ctx, newUser)
 		if err != nil {
@@ -291,7 +294,8 @@ func OAuthLogin(c *fiber.Ctx) error {
 				Result:  nil,
 			})
 		}
-		jwtToken, err = createJwt(newUser.Id.Hex())
+		existingUser = newUser
+		jwtToken, _ = createJwt(newUser.Id.Hex())
 	} else if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
 			Status:  fiber.StatusInternalServerError,
@@ -299,8 +303,29 @@ func OAuthLogin(c *fiber.Ctx) error {
 			Result:  nil,
 		})
 	} else {
+		if existingUser.ImageUrl != profileImage {
+			update := bson.M{"$set": bson.M{"profileImage": profileImage}}
+			_, err = userCollection.UpdateOne(ctx, bson.M{"email": email}, update)
+			if err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+					Status:  fiber.StatusInternalServerError,
+					Message: "Error updating user profile image",
+					Result:  nil,
+				})
+			}
+			existingUser.ImageUrl = profileImage
+		}
 		// Existing user, generate token
 		jwtToken, err = createJwt(existingUser.Id.Hex())
+	}
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  fiber.StatusInternalServerError,
+			Message: "Error generating token",
+			Result:  nil,
+		})
+
 	}
 
 	return c.Status(fiber.StatusOK).JSON(responses.UserResponse{
@@ -312,7 +337,6 @@ func OAuthLogin(c *fiber.Ctx) error {
 				"name":         existingUser.Name,
 				"profileImage": existingUser.ImageUrl,
 				"email":        existingUser.Email,
-				"password":     "",
 				"type":         existingUser.Type,
 				"cart":         existingUser.Cart,
 				"token":        jwtToken,
@@ -340,13 +364,17 @@ func ValidateGoogleToken(token string) (map[string]string, error) {
 
 	email, ok1 := data["email"].(string)
 	name, ok2 := data["name"].(string)
+	picture := data["picture"].(string)
 	if !ok1 || !ok2 {
-		return nil, errors.New("missing email or name")
+		return nil, errors.New("missing email or name ")
 	}
-
-	return map[string]string{"email": email, "name": name}, nil
+	return map[string]string{
+			"email":        email,
+			"name":         name,
+			"profileImage": picture,
+		},
+		nil
 }
-
 
 func ValidateFacebookToken(token string) (map[string]string, error) {
 	resp, err := http.Get("https://graph.facebook.com/me?fields=id,name,email&access_token=" + token)
