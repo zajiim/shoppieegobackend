@@ -7,7 +7,6 @@ import (
 	"fiber-mongo-api/configs"
 	"fiber-mongo-api/models"
 	"fiber-mongo-api/responses"
-	"fmt"
 	"net/http"
 	"os"
 	"regexp"
