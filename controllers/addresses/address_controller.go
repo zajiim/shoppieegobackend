@@ -63,10 +63,37 @@ func AddAddress(c *fiber.Ctx) error {
 		})
 	}
 
+	//fetch the updated list
+	var addresses []models.Address
+	cursor, err := addressCollection.Find(ctx, bson.M{"userId": userObjId})
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  fiber.StatusInternalServerError,
+			Message: "Error fetching address list",
+			Result:  nil,
+		})
+	}
+	defer cursor.Close(ctx)
+
+	//Decode the addresses
+	for cursor.Next(ctx) {
+		var address models.Address
+		if err := cursor.Decode(&address); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+				Status:  fiber.StatusInternalServerError,
+				Message: "Error decoding addresses",
+				Result:  nil,
+			})
+		}
+		addresses = append(addresses, address)
+	}
+
 	return c.Status(fiber.StatusOK).JSON(responses.UserResponse{
 		Status:  fiber.StatusOK,
 		Message: "Address added successfully",
-		Result:  nil,
+		Result: &fiber.Map{
+			"addresses": addresses,
+		},
 	})
 
 }
@@ -180,10 +207,37 @@ func DeleteAddress(c *fiber.Ctx) error {
 		})
 	}
 
+	//fetch the updated list
+	var addresses []models.Address
+	cursor, err := addressCollection.Find(ctx, bson.M{"userId": userObjId})
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  fiber.StatusInternalServerError,
+			Message: "Error fetching address list",
+			Result:  nil,
+		})
+	}
+	defer cursor.Close(ctx)
+
+	//Decode the addresses
+	for cursor.Next(ctx) {
+		var address models.Address
+		if err := cursor.Decode(&address); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+				Status:  fiber.StatusInternalServerError,
+				Message: "Error decoding addresses",
+				Result:  nil,
+			})
+		}
+		addresses = append(addresses, address)
+	}
+
 	return c.Status(fiber.StatusOK).JSON(responses.UserResponse{
 		Status:  fiber.StatusOK,
 		Message: "Address deleted successfully",
-		Result:  nil,
+		Result: &fiber.Map{
+			"addresses": addresses,
+		},
 	})
 }
 
@@ -251,9 +305,36 @@ func EditAddress(c *fiber.Ctx) error {
 		})
 	}
 
+	//fetch updated list
+	var addresses []models.Address
+	cursor, err := addressCollection.Find(ctx, bson.M{"userId": userObjId})
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  fiber.StatusInternalServerError,
+			Message: "Error fetching address list",
+			Result:  nil,
+		})
+	}
+	defer cursor.Close(ctx)
+
+	//Decode the addresses
+	for cursor.Next(ctx) {
+		var address models.Address
+		if err := cursor.Decode(&address); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+				Status:  fiber.StatusInternalServerError,
+				Message: "Error decoding addresses",
+				Result:  nil,
+			})
+		}
+		addresses = append(addresses, address)
+	}
+
 	return c.Status(fiber.StatusOK).JSON(responses.UserResponse{
 		Status:  fiber.StatusOK,
 		Message: "Address updated successfully",
-		Result:  nil,
+		Result: &fiber.Map{
+			"addresses": addresses,
+		},
 	})
 }
