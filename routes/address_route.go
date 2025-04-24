@@ -13,4 +13,5 @@ func AddressRoutes(app *fiber.App) {
 	app.Delete("api/address", middlewares.AuthMiddleware, addressController.DeleteAddress)
 	app.Put("api/edit-address", middlewares.AuthMiddleware, addressController.EditAddress)
 	app.Put("api/select-address", middlewares.AuthMiddleware, addressController.SelectAddress)
+	app.Get("api/get-selected-address", middlewares.AuthMiddleware, addressController.GetSelectedAddress)
 }

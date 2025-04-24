@@ -151,6 +151,50 @@ func GetAddresses(c *fiber.Ctx) error {
 	})
 }
 
+func GetSelectedAddress(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	userId := c.Locals("userId").(string)
+	userObjId, err := primitive.ObjectIDFromHex(userId)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  fiber.StatusBadRequest,
+			Message: "Invalid user ID",
+			Result:  nil,
+		})
+	}
+
+	// Find the selected address for the user
+	address := models.Address{}
+	err = addressCollection.FindOne(ctx, bson.M{"userId": userObjId, "isUserSelected": true}).Decode(&address)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(fiber.StatusNotFound).JSON(responses.UserResponse{
+				Status:  fiber.StatusNotFound,
+				Message: "No selected address found",
+				Result:  &fiber.Map{
+					"addresses": []models.Address{},
+				},
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  fiber.StatusInternalServerError,
+			Message: "Error fetching selected address",
+			Result:  nil,
+		})
+	}
+
+	// Return the selected address
+	return c.Status(fiber.StatusOK).JSON(responses.UserResponse{
+		Status:  fiber.StatusOK,
+		Message: "Selected address fetched successfully",
+		Result: &fiber.Map{
+			"addresses": []models.Address{address},
+		},
+	})
+}
+
 func DeleteAddress(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -338,7 +382,8 @@ func EditAddress(c *fiber.Ctx) error {
 		},
 	})
 }
-//to select address
+
+// to select address
 func SelectAddress(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -382,7 +427,7 @@ func SelectAddress(c *fiber.Ctx) error {
 			Result:  nil,
 		})
 	}
-	
+
 	if result.MatchedCount == 0 {
 		return c.Status(fiber.StatusNotFound).JSON(responses.UserResponse{
 			Status:  fiber.StatusNotFound,
