@@ -166,31 +166,36 @@ func GetSelectedAddress(c *fiber.Ctx) error {
 	}
 
 	// Find the selected address for the user
-	address := models.Address{}
-	err = addressCollection.FindOne(ctx, bson.M{"userId": userObjId, "isUserSelected": true}).Decode(&address)
+	var addresses []models.Address
+	cursor, err := addressCollection.Find(ctx, bson.M{"userId": userObjId, "isUserSelected": true})
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return c.Status(fiber.StatusNotFound).JSON(responses.UserResponse{
-				Status:  fiber.StatusNotFound,
-				Message: "No selected address found",
-				Result:  &fiber.Map{
-					"addresses": []models.Address{},
-				},
-			})
-		}
 		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
 			Status:  fiber.StatusInternalServerError,
 			Message: "Error fetching selected address",
 			Result:  nil,
 		})
 	}
+	defer cursor.Close(ctx)
 
-	// Return the selected address
+	// Decode the addresses
+	for cursor.Next(ctx) {
+		var address models.Address
+		if err := cursor.Decode(&address); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+				Status:  fiber.StatusInternalServerError,
+				Message: "Error decoding addresses",
+				Result:  nil,
+			})
+		}
+		addresses = append(addresses, address)
+	}
+
+	// Return the selected addresses (or empty array if none found)
 	return c.Status(fiber.StatusOK).JSON(responses.UserResponse{
 		Status:  fiber.StatusOK,
 		Message: "Selected address fetched successfully",
 		Result: &fiber.Map{
-			"addresses": []models.Address{address},
+			"addresses": addresses,
 		},
 	})
 }

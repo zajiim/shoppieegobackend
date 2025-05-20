@@ -8,6 +8,7 @@ import (
 	"fiber-mongo-api/configs"
 	"fiber-mongo-api/models"
 	"fiber-mongo-api/responses"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -15,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var orderCollection *mongo.Collection = configs.GetCollection(configs.DB, "orders")
@@ -302,6 +304,194 @@ func VerifyPayment(c *fiber.Ctx) error {
 			"orderId":    verifyReq.OrderID,
 			"paymentId":  verifyReq.PaymentID,
 			"razorpayId": verifyReq.RazorpayID,
+		},
+	})
+}
+
+func GetOrders(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
+	defer cancel()
+
+	userId, ok := c.Locals("userId").(string)
+	if !ok || userId == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(responses.UserResponse{
+			Status:  fiber.StatusUnauthorized,
+			Message: "User ID not found in token",
+			Result:  nil,
+		})
+	}
+
+	userObjectID, err := primitive.ObjectIDFromHex(userId)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  fiber.StatusBadRequest,
+			Message: "Invalid user ID format",
+			Result:  nil,
+		})
+	}
+
+	pageStr := c.Query("page", "1")
+	limitStr := c.Query("limit", "10")
+	status := c.Query("status", "") // Optional status filter
+
+	page, err := strconv.ParseInt(pageStr, 10, 64)
+	if err != nil {
+		page = 1
+	}
+
+	limit, err := strconv.ParseInt(limitStr, 10, 64)
+	if err != nil {
+		limit = 10
+	}
+
+	skip := (page - 1) * limit
+
+	// Build query filter
+	filter := bson.M{"userId": userObjectID}
+	if status != "" {
+		filter["status"] = status
+	}
+
+	// Count total orders for the user
+	totalOrders, err := orderCollection.CountDocuments(ctx, filter)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  fiber.StatusInternalServerError,
+			Message: "Failed to count orders",
+			Result:  nil,
+		})
+	}
+
+	// Fetch paginated orders
+	cursor, err := orderCollection.Find(ctx, filter, &options.FindOptions{
+		Skip:  &skip,
+		Limit: &limit,
+	})
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  fiber.StatusInternalServerError,
+			Message: "Failed to fetch orders",
+			Result:  nil,
+		})
+	}
+	defer cursor.Close(ctx)
+
+	var orders []fiber.Map
+	for cursor.Next(ctx) {
+		var order models.Order
+		if err := cursor.Decode(&order); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+				Status:  fiber.StatusInternalServerError,
+				Message: "Failed to decode order",
+				Result:  nil,
+			})
+		}
+
+		// Simplify order items
+		var simplifiedItems []fiber.Map
+		for _, item := range order.Items {
+			simplifiedItems = append(simplifiedItems, fiber.Map{
+				"name":     item.Product.Name,
+				"price":    item.Product.Price,
+				"size":     item.Size,
+				"quantity": item.Quantity,
+				"image":    item.Product.Images[0], // Assuming the first image is required
+			})
+		}
+
+		orders = append(orders, fiber.Map{
+			"id":        order.ID.Hex(),
+			"items":     simplifiedItems,
+			"status":    order.Status,
+			"total":     order.TotalAmount,
+			"createdAt": order.CreatedAt,
+		})
+	}
+
+	if err := cursor.Err(); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  fiber.StatusInternalServerError,
+			Message: "Cursor error",
+			Result:  nil,
+		})
+	}
+
+	totalPages := (totalOrders + limit - 1) / limit
+
+	return c.Status(fiber.StatusOK).JSON(responses.UserResponse{
+		Status:  fiber.StatusOK,
+		Message: "Orders fetched successfully",
+		Result: &fiber.Map{
+			"orders":      orders,
+			"currentPage": page,
+			"totalPages":  totalPages,
+			"totalOrders": totalOrders,
+		},
+	})
+}
+
+func GetOrderById(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
+	defer cancel()
+
+	userId, ok := c.Locals("userId").(string)
+	if !ok || userId == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(responses.UserResponse{
+			Status:  fiber.StatusUnauthorized,
+			Message: "User ID not found in token",
+			Result:  nil,
+		})
+	}
+
+	orderId := c.Query("id")
+	if orderId == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  fiber.StatusBadRequest,
+			Message: "Order ID is required",
+			Result:  nil,
+		})
+	}
+
+	orderObjectID, err := primitive.ObjectIDFromHex(orderId)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  fiber.StatusBadRequest,
+			Message: "Invalid order ID format",
+			Result:  nil,
+		})
+	}
+
+	userObjectID, err := primitive.ObjectIDFromHex(userId)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  fiber.StatusBadRequest,
+			Message: "Invalid user ID format",
+			Result:  nil,
+		})
+	}
+
+	var order models.Order
+	err = orderCollection.FindOne(ctx, bson.M{"_id": orderObjectID, "userId": userObjectID}).Decode(&order)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(fiber.StatusNotFound).JSON(responses.UserResponse{
+				Status:  fiber.StatusNotFound,
+				Message: "Order not found",
+				Result:  nil,
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  fiber.StatusInternalServerError,
+			Message: "Failed to fetch order",
+			Result:  nil,
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(responses.UserResponse{
+		Status:  fiber.StatusOK,
+		Message: "Order fetched successfully",
+		Result: &fiber.Map{
+			"order": order,
 		},
 	})
 }
